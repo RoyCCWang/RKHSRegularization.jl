@@ -22,7 +22,7 @@ function hyperoptim!(
     @assert length(lb) == length(ub)
     
     # minimize the negative of likelihood
-    costfunc = xx->evalnll(xx, var_mapping, η, y)
+    costfunc = xx->evalnll!(η, xx, var_mapping, y)
 
     return runoptim(costfunc, lb, ub, config), costfunc
 end

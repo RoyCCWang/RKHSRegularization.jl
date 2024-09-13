@@ -1,6 +1,6 @@
 
 
-abstract type BrownianBridgeKernel <: PositiveDefiniteKernel end
+abstract type BrownianBridgeKernel <: Kernel end
 
 struct BrownianBridge10{T} <: BrownianBridgeKernel
     a::T

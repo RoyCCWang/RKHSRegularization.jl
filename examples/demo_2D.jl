@@ -1,4 +1,4 @@
-
+# WIP
 # 2D regression.
 
 import Images
@@ -19,7 +19,7 @@ N1_y, N2_y = size(y_nD)
 
 ##### regression
 #θ = RK.Spline34Kernel(0.04)
-θ = RK.WendlandSplineKernel(RK.Order2(), 0.04, 3)
+θ = RK.WendlandSpline(RK.Order2(), 0.04, 3)
 
 # user inputs.
 #σ² = 1e-3
@@ -51,6 +51,9 @@ println("isposdef = ", isposdef(K))
 η = RK.Problem(RK.UseRKHS(), X, θ, RK.Variance(σ²))
 RK.fit!(η, y)
 
+evalnll(p_test, )
+
+@assert 2==43
 
 # query.
 
@@ -79,3 +82,41 @@ PLT.legend()
 # discrepancy over the original training inputs X. Should be zero if σ² is 0.
 yq2 = xx->RK.queryRKHS(xx, η)
 @show norm(yq2.(vec(X_nD)) - y )
+
+
+"""
+julia> @btime ($C)\($b);
+28.944 μs (2 allocations: 1.62 KiB)
+
+julia> @btime cholesky($A);
+167.995 μs (3 allocations: 312.58 KiB)
+
+julia> @btime ($A)\($b);
+407.503 μs (7 allocations: 315.83 KiB)
+
+
+
+
+julia> randn!(A);
+
+julia> A = A'*A;
+
+julia> x_oracle = A\b;
+
+julia> C = cholesky(A);
+
+julia> x2 = C\b;
+
+julia> norm(x_oracle - x2);
+
+julia> norm(x_oracle - x2)
+8.086626538161596e-11
+
+julia> C2 = cholesky!(A);
+
+julia> norm(C2\b - x_oracle)
+8.086626538161596e-11
+
+"""
+
+nothing

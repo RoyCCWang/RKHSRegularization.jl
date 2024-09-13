@@ -1,174 +1,231 @@
-# Methods for fitting and querying under the RKHS regularization framework.
 
-function constructkernelmatrix(X::Vector{Vector{T}}, θ::PositiveDefiniteKernel)::Matrix{T} where T
+# all parameters to a RKHS regularization problem.
+struct AllParameters{T <: AbstractFloat, ST <: SubArray, RT <: AbstractArray}
+    contents::Memory{T}
+    kernel::ST
+    noise::ST
+    outputs::ST
+    inputs::RT # reshaped subarray
 
-    K = Matrix{T}(undef,length(X),length(X))
-    constructkernelmatrix!(K, X, θ)
+    function AllParameters(::Type{T}, D::Integer, N::Integer, N_kernel::Integer, N_noise::Integer) where T <: AbstractFloat
+        #
+        N_vars = D*N + N + N_noise + N_kernel
+        contents = Memory{T}(undef, N_vars)
 
-    return K
+        st_ind = 1
+        fin_ind = st_ind + N_kernel -1
+        v_kernel = view(contents, st_ind:fin_ind)
+
+        st_ind = fin_ind + 1
+        fin_ind = st_ind + N_noise -1
+        v_noise = view(contents, st_ind:fin_ind)
+
+        st_ind = fin_ind + 1
+        fin_ind = st_ind + N -1
+        v_out = view(contents, st_ind:fin_ind)
+
+        st_ind = fin_ind + 1
+        fin_ind = st_ind + D*N -1
+        v_in = reshape(view(contents, st_ind:fin_ind), D, N)
+
+        fin_ind == N_vars || error("Length mismatch. Please report this issue.")
+        return new{T, typeof(v_out), typeof(v_in)}(contents, v_kernel, v_noise, v_out, v_in)
+    end
 end
 
-function constructkernelmatrix!(
-    K::Matrix{T},
-    X::Union{Vector{Vector{T}},SubArray},
-    θ::PositiveDefiniteKernel,
-    ) where T
+function get_flat(p::AllParameters)
+    return p.contents
+end
 
-    M = length(X)
-    @assert size(K) == (M,M)
-
-    #fill!(K,Inf) # debug
-    for j = 1:M
-        for i = j:M
-            K[i,j] = evalkernel(X[i], X[j], θ)
-        end
-    end
-
-    for j = 2:M
-        for i = 1:(j-1)
-            K[i,j] = K[j,i]
-        end
-    end
-
+function update_params!(p::AllParameters, x::AbstractVector)
+    v = view(p.contents, 1:length(x))
+    copy!(v, x)
     return nothing
 end
 
-# returns K_XZ. Entry i,j is k(x[i],z[j]).
-function constructkernelmatrix(
-    X::Vector{Vector{T}},
-    Z::Vector{Vector{T}},
-    θ::PositiveDefiniteKernel,
-    )::Matrix{T} where T
+function initialize_params(X::Matrix{T}, y::AbstractVector{T}, θ::Kernel, noise::NoiseModel) where T <: AbstractFloat
+    N_kernel = get_num_params(θ)
+    N_noise = get_num_params(noise)
+    D, N = size(X)
+    length(y) == N || error("Length mismatch.")
 
-    Nr = length(X)
-    Nc = length(Z)
+    p = AllParameters(T, D, N, N_kernel, N_noise)
+    copy!(p.kernel, get_params(θ))
+    copy!(p.noise, get_params(noise))
+    copy!(p.outputs, y)
+    copy!(p.inputs, X)
 
-    K = Matrix{T}(undef, Nr, Nc)
-    fill!(K,Inf) # debug
-    for j = 1:Nc
-        for i = 1:Nr
-            K[i,j] = evalkernel(X[i], Z[j], θ)
-        end
-    end
-
-    return K
+    return p
 end
 
-# front end for all kernels.
-function constructkernelmatrix!(K::Matrix{T}, η::Problem) where T
-    constructkernelmatrix!(K, η.inference, η.X, η.θ)
-    return nothing
+# # when we just want the parameters for the mean query equation.
+# struct QueryParameter{T <: AbstractFloat, ST <: SubArray}
+
+#     contents::Memory{T}
+#     kernel::ST
+#     coeffs::ST
+# end
+
+struct FitOptions{KT <: KernelfitOption, NT <: NoisefitOption, OT <: OutputsFitOption, IT <: InputsFitOption}
+    kernel::KT
+    noise::NT
+    outputs::OT
+    inputs::IT
 end
 
-# for non-adaptive kernels.
-function constructkernelmatrix!(
-    K::Matrix{T},
-    ::Union{RKHS{T},CholeskyGP{T}},
-    X::Union{Vector{Vector{T}},SubArray},
-    θ::PositiveDefiniteKernel,
-    ) where T
-
-    constructkernelmatrix!(K, X, θ)
-    return nothing
+function FitOptions(kernel::KernelfitOption)
+    return FitOptions(kernel, ConstantNoise(), ConstantOutputs(), ConstantInputs())
 end
 
-# adaptive kernel version.
-function constructkernelmatrix!(
-    K::Matrix{T},
-    inference::Union{AdaptiveRKHS{T},AdaptiveCholeskyGP{T}}, # mutates.
-    X::Union{Vector{Vector{T}},SubArray},
-    θ::AdaptiveKernel,
-    ) where T
-
-    M = length(X)
-    @assert size(K) == (M,M)
-
-    warp = θ.warp
-    warp_X = inference.warp_X
-
-    # update warpmap evals.
-    resize!(inference.warp_X, length(X))
-    for n in eachindex(X)
-        inference.warp_X[n] = evalwarpmap(X[n], warp)
-        #@show evalwarpmap(X[n], warp)
-    end
-
-    #fill!(K,Inf) # debug
-    for j = 1:M
-        for i = j:M
-            if i == j
-                K[i,j] = one(T)
-            else
-                #K[i,j] = evalkernel(X[i], X[j], θ)
-                K[i,j] = evalkernel(X[i], j, X, θ, warp_X)
-            end
-        end
-    end
-
-    for j = 2:M
-        for i = 1:(j-1)
-            K[i,j] = K[j,i]
-        end
-    end
-
-    return nothing
+function FitOptions(kernel::KernelfitOption, noise::NoisefitOption)
+    return FitOptions(kernel, noise, ConstantOutputs(), ConstantInputs())
 end
 
-
-#### Try separable RKHS via inverse. Assume N_r == D
-# Assume η.a is same for all dimensions.
-
-function fit!(η::Problem, y::Vector{T})::Nothing where T
-    return fit!(η, y, η.θ)
-end
-
-# \theta overides η.θ.
-function fit!(η::Problem, y::Vector{T}, θ::PositiveDefiniteKernel,)::Nothing where T
-    return fit!(η.U, η, y, θ)
-end
-
-function fit!(
-    U::Matrix{T}, # U is K with noise model applied, e.g. K + σ²I if using a variance model.
-    η::Problem,
-    y::Vector{T},
-    θ::PositiveDefiniteKernel, # overides η.θ.
-    )::Nothing where T
-
-    @assert !isempty(η.X)
-    @assert !isempty(y)
-
-    M = length(η.X)
-    @assert M == length(y)
-
-    # update kernel matrix
-    constructkernelmatrix!(U, η.inference, η.X, θ)
-
-    # add observation model's noise.
-    applynoisemodel!(U, η.noise_model)
-
-    # solve.
-    η.c[:] = U\y
-
-    updateinferencecontainer!(η.inference, U)
-
-    return nothing
-end
-
-function updateinferencecontainer!(C::Union{CholeskyGP{T},AdaptiveCholeskyGP{T}}, U::Matrix{T}) where T
+function get_flat(p::AllParameters, op::FitOptions)
     
-    chol_U = cholesky(U)
-    C.L[:] = chol_U.L
+    N_vars = 0
+    if typeof(op.kernel) <: VariableKernel
+        N_vars += length(p.kernel)
+    end
 
-    return nothing
+    if typeof(op.noise) <: VariableNoise
+        N_vars += length(p.noise)
+    end
+
+    if typeof(op.outputs) <: VariableOutputs
+        N_vars += length(p.outputs)
+    end
+
+    if typeof(op.inputs) <: VariableInputs
+        N_vars += length(p.inputs)
+    end
+
+    return view(p.contents, 1:N_vars)
 end
 
-function updateinferencecontainer!(::Union{RKHS{T},AdaptiveRKHS{T}}, args...) where T
+struct LikelihoodState{T <: AbstractFloat, PT <: AllParameters, KT <: Kernel, NT <: NoiseModel}
+    p::PT
+
+    U::Matrix{T}
+    c::Memory{T}
+
+    kernel::KT
+    noise::NT
+    outputs::Memory{T}
+    inputs::Matrix{T}
+
+    function LikelihoodState(::Type{T}, D::Integer, N::Integer, θ::KT, σ²::NT) where {T <: AbstractFloat, KT <: Kernel, NT <: NoiseModel}
+
+        p = AllParameters(T, D, N, get_num_params(θ), get_num_params(σ²))
+        outputs = collect(p.outputs)
+        inputs = collect(p.inputs)
+
+        return new{T, typeof(p), KT, NT}(
+            p,
+            zeros(T, N, N),
+            Memory{T}(undef, N),
+            θ,
+            σ²,
+            outputs,
+            inputs,
+        )
+    end
+    
+    function LikelihoodState(X::Matrix{T}, y::AbstractVector{T}, θ::KT, σ²::NT) where {T <: AbstractFloat, KT <: Kernel, NT <: NoiseModel}
+
+        D, N = size(X)
+        length(y) == N || error("Size mismatch.")
+
+        p = initialize_params(X, y, θ, σ²)
+        outputs = collect(p.outputs)
+        inputs = collect(p.inputs)
+
+        return new{T, typeof(p), KT, NT}(
+            p,
+            zeros(T, N, N),
+            Memory{T}(undef, N),
+            θ,
+            σ²,
+            outputs,
+            inputs,
+        )
+    end
+end
+
+# does not mutate
+function eval_nll!(
+    s::LikelihoodState{T}, # mutates
+    x::AbstractVector{T},
+    op::FitOptions,
+    )::T where T <: AbstractFloat
+
+    # load parameters
+    p = s.p
+    update_params!(p, x)
+
+    parse_kernel!(op.kernel, s.kernel, p.kernel)
+    parse_noise!(op.noise, s.noise, p.noise)
+    parse_outputs!(op.outputs, s.outputs, p.outputs)
+    parse_inputs!(op.inputs, s.inputs, p.inputs)
+    
+    # kernel matrix
+    U, noise, kernel = s.U, s.noise, s.kernel
+    X, y = s.inputs, s.outputs
+    update_K!(U, X, kernel)
+    applynoisemodel!(U, noise)
+    #@show norm(U)
+
+    # fit GP.
+    c = s.c
+    L = cholesky(U) # allocates.
+    copy!(c, L\y) # allocates.
+
+    # dot(y, Ky\y) - logdet(Ky)
+    #logdet_term = 2*sum( log(L[i,i]) for i in axes(L,1) ) # might need guard against non-positive entries being in the diagonal of L when we compute it.
+    logdet_term = logdet(L) # cannot explicitly index into a Cholesky factor as of Julia v1.11.
+
+    #@show dot(y, η.c), logdet_term
+    log_likelihood = -dot(y, c) - logdet_term
+
+    return -log_likelihood
+end
+
+function update_K!(K::Matrix, X::Matrix, θ::Kernel)
+
+    M = size(X,2)
+    size(K,1) == size(K,2) == M || error("Size mismatch.")
+
+    # for j = 1:M
+    #     for i = j:M
+
+    ## buggy code.
+    # fill!(K, Inf) # debug.
+    # for (j, x_j) in Iterators.zip(1:M, eachcol(X))
+    #     for (i, x_i) in Iterators.zip(j:M, eachcol(X))
+    #         K[i,j] = evalkernel(x_i, x_j, θ)
+    #     end
+    # end
+    # for j = 2:M
+    #     for i = 1:(j-1)
+    #         K[i,j] = K[j,i]
+    #     end
+    # end
+
+    # twice slower, but accurate.
+    fill!(K, Inf) # debug.
+    for (j, x_j) in Iterators.zip(axes(K,2), eachcol(X))
+        for (i, x_i) in Iterators.zip(axes(K,1), eachcol(X))
+            K[i,j] = evalkernel(x_i, x_j, θ)
+        end
+    end
+
+
     return nothing
 end
 
 ### apply additive normal distributed noise model.
 
-function applynoisemodel!(U::Matrix{T}, x::Variance{T}) where T
+function applynoisemodel!(U::Matrix{T}, x::CommonVariance{T}) where T
 
     v = x.v[begin]
     for i in axes(U,1)
@@ -178,8 +235,7 @@ function applynoisemodel!(U::Matrix{T}, x::Variance{T}) where T
     return nothing
 end
 
-
-function applynoisemodel!(U::Matrix{T}, x::DiagonalCovariance{T}) where T
+function applynoisemodel!(U::Matrix{T}, x::DiagonalVariance{T}) where T
 
     v = x.v
     #@show length(v), size(U)
@@ -191,18 +247,3 @@ function applynoisemodel!(U::Matrix{T}, x::DiagonalCovariance{T}) where T
 
     return nothing
 end
-
-function applynoisemodel!(U::Matrix{T}, x::Covariance{T}) where T
-
-    v = x.v
-    @assert size(v) == size(U)
-
-    for i in eachindex(U)
-        U[i] += v[i]
-    end
-
-    return nothing
-end
-
-
-

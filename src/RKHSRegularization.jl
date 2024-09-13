@@ -8,23 +8,24 @@ using LinearAlgebra
 # # RKHS
 include("types.jl")
 
-include("./kernels/basic.jl")
-include("./kernels/adaptive.jl")
-include("./kernels/brownian.jl")
 
 include("fit.jl")
-include("inference.jl")
+include("gp/query.jl")
+include("kernels/basic.jl")
 
-include("utils.jl")
-
-include("./gp/likelihood.jl")
-
-# dimensionality reduction of training samples.
+# legacy
 
 
-# # training
-include("./training/optim.jl")
+# include("fit_old.jl")
 
+
+# include("inference.jl")
+
+# include("utils.jl")
+
+export evalnll!, initialize_params, LikelihoodState, FitOptions,
+AllParameters, update_params!, get_flat, update_kernel!, update_noise!
+GPState, GPModel, RKHSState, RKHSModel
 
 end # module RKHSRegularization
 
