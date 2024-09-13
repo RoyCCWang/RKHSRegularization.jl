@@ -32,7 +32,7 @@ function evalkernel!(kq::AbstractVector, xq::AbstractVector, X::Matrix, θ::Kern
     return nothing
 end
 
-function query!(f_xqs::AbstractVector, s::RKHSState, xqs::AbstractMatrix, ps::RKHSModel)
+function query!(f_xqs::AbstractArray, s::RKHSState, xqs::AbstractMatrix, ps::RKHSModel)
 
     for (m, xq) in Iterators.zip(eachindex(f_xqs), eachcol(xqs))
         f_xqs[m] = query!(s, xq, ps)
@@ -74,7 +74,7 @@ function query!(s::GPState, xq::AbstractVector, ps::GPModel)
     return m_xq, v_xq
 end
 
-function query!(m_xqs::AbstractVector, v_xqs::AbstractVector, s::GPState, xqs::AbstractMatrix, ps::GPModel)
+function query!(m_xqs::AbstractArray, v_xqs::AbstractArray, s::GPState, xqs::AbstractMatrix, ps::GPModel)
 
     for (m, xq) in Iterators.zip(eachindex(m_xqs, v_xqs), eachcol(xqs))
         m_xqs[m], v_xqs[m] = query!(s, xq, ps)

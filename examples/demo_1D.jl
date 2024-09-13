@@ -26,9 +26,7 @@ X = reshape(collect(x_range), D, N)
 oracle_func = xx->sinc(4*xx)*xx^3
 y = oracle_func.(x_range)
 
-# # Setup buffer
-
-
+# # Fit kernel hyperparameter
 options = RK.FitOptions(RK.VariableKernel())
 state = RK.LikelihoodState(X, y, θ, σ²)
 
@@ -45,7 +43,7 @@ p0 = RK.initialize_params(X, y, θ, σ²)
 x0 = collect(RK.get_flat(p0, options))
 
 f = CostCallable(state, options)
-#ret = Optim.optimize(f, x0, Optim.NelderMead())
+
 Random.seed!(25)
 ret = Optim.optimize(
     f,
